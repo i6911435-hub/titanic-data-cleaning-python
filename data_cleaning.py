@@ -1,101 +1,157 @@
-"""
-Titanic Dataset Data Cleaning Project
-1) Download train.csv from the Kaggle page linked in README.md.
-2) Put train.csv inside the data/ folder.
-3) Run: pip install pandas matplotlib
-4) Run: python data_cleaning.py
-
-The script creates cleaned_titanic.csv and genuine screenshots from the downloaded file.
-"""
-from pathlib import Path
+import os
+import sys
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 
-ROOT = Path(__file__).resolve().parent
-DATA = ROOT / "data" / "train.csv"
-OUT = ROOT / "data" / "cleaned_titanic.csv"
-SHOTS = ROOT / "screenshots"
-SHOTS.mkdir(exist_ok=True)
 
-if not DATA.exists():
-    raise FileNotFoundError(
-        "Missing data/train.csv. Download train.csv from the Kaggle Titanic page "
-        "and place it in the project's data folder."
+def run_data_cleansing(input_csv="cleaned_titanic.csv", output_dir="Output"):
+  if not os.path.exists(input_csv):
+    print(f"Error: Input file '{input_csv}' not found.")
+    sys.exit(1)
+
+  os.makedirs(output_dir, exist_ok=True)
+  report = []
+  report.append("TITANIC DATA CLEANSING - EXECUTION REPORT")
+  report.append("=" * 64)
+
+  # 5.1 Data Loading and Inspection
+  df = pd.read_csv(input_csv)
+  orig_rows, orig_cols = df.shape
+  orig_dups = int(df.duplicated().sum())
+  orig_missing_series = df.isna().sum()
+  orig_missing_total = int(orig_missing_series.sum())
+
+  report.append(f"Original shape: {orig_rows} rows x {orig_cols} columns")
+  report.append(f"Exact duplicate rows before cleaning: {orig_dups}")
+  report.append("\nMissing values before cleaning:")
+  report.append(orig_missing_series.to_string())
+  report.append("")
+
+  # 5.2 Text Standardization (Whitespace removal)
+  text_cols = df.select_dtypes(include=["object", "string"]).columns.tolist()
+  for col in text_cols:
+    df[col] = df[col].astype(str).str.strip()
+  report.append("Step 1 - Text whitespace cleaned.")
+
+  # 5.3 Duplicate Removal
+  dups_removed = int(df.duplicated().sum())
+  df = df.drop_duplicates().reset_index(drop=True)
+  report.append(f"Step 2 - Duplicate rows removed: {dups_removed}")
+
+  # 5.4 Data Type Correction
+  for col in ["PassengerId", "Survived", "Pclass", "SibSp", "Parch"]:
+    if col in df.columns:
+      df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+  for col in ["Age", "Fare"]:
+    if col in df.columns:
+      df[col] = pd.to_numeric(df[col], errors="coerce")
+  report.append("Step 3 - Numeric columns converted to appropriate numeric types.")
+
+  # 5.5 Handling Invalid Values (Negative Age / Fare check)
+  neg_age = int((df["Age"] < 0).sum()) if "Age" in df.columns else 0
+  neg_fare = int((df["Fare"] < 0).sum()) if "Fare" in df.columns else 0
+  if "Age" in df.columns:
+    df.loc[df["Age"] < 0, "Age"] = np.nan
+  if "Fare" in df.columns:
+    df.loc[df["Fare"] < 0, "Fare"] = np.nan
+  report.append(
+      f"Step 4 - Invalid negative Age values corrected: {neg_age}; negative Fare"
+      f" values corrected: {neg_fare}."
+  )
+
+  # 5.6 Handling Missing Values (Group Median & Mode)
+  if "Age" in df.columns:
+    if {"Pclass", "Sex"}.issubset(df.columns):
+      df["Age"] = df.groupby(["Pclass", "Sex"], dropna=False)["Age"].transform(
+          lambda s: s.fillna(s.median())
+      )
+    df["Age"] = df["Age"].fillna(df["Age"].median())
+
+  if "Embarked" in df.columns:
+    df["Embarked"] = df["Embarked"].replace(
+        {"nan": np.nan, "NaN": np.nan, "None": np.nan, "": np.nan}
     )
+    if df["Embarked"].isna().any():
+      df["Embarked"] = df["Embarked"].fillna(df["Embarked"].mode()[0])
 
-df = pd.read_csv(DATA)
-print("BEFORE PROCESSING")
-print("Shape:", df.shape)
-print(df.head().to_string(index=False))
-print("\\nMissing values by column:\\n", df.isna().sum())
-print("\\nDuplicate rows:", df.duplicated().sum())
+  if "Cabin" in df.columns:
+    df["CabinKnown"] = df["Cabin"].notna().astype(int)
+    df = df.drop(columns=["Cabin"])
 
-# Screenshot 1: original dataset preview
-fig, ax = plt.subplots(figsize=(13, 3.2))
-ax.axis("off")
-ax.set_title(f"Before Processing — first 8 rows | shape={df.shape}", weight="bold")
-tbl = ax.table(cellText=df.head(8).fillna("MISSING").astype(str).values,
-               colLabels=df.columns, loc="center", cellLoc="left")
-tbl.auto_set_font_size(False); tbl.set_fontsize(6); tbl.scale(1, 1.35)
-plt.tight_layout(); plt.savefig(SHOTS / "01_before_processing.png", dpi=180); plt.close()
+  for col in df.select_dtypes(include=[np.number]).columns:
+    if df[col].isna().any():
+      df[col] = df[col].fillna(df[col].median())
+  for col in df.select_dtypes(include=["object", "string"]).columns:
+    if df[col].isna().any():
+      df[col] = df[col].fillna(df[col].mode()[0])
 
-# Screenshot 2: missing values discovery
-missing = df.isna().sum()
-fig, ax = plt.subplots(figsize=(9, 4))
-ax.axis("off")
-ax.set_title("Missing Values Found — df.isna().sum()", weight="bold")
-lines = [f"{col:<15} {count}" for col, count in missing.items()]
-ax.text(0.05, 0.92, "Column          Missing count\\n" + "\\n".join(lines),
-        va="top", family="monospace", fontsize=11)
-ax.text(0.05, 0.08, f"Duplicate rows detected: {df.duplicated().sum()}",
-        va="bottom", fontsize=11)
-plt.tight_layout(); plt.savefig(SHOTS / "02_missing_values.png", dpi=180); plt.close()
+  final_missing_total = int(df.isna().sum().sum())
+  report.append(
+      f"Step 5 - Missing cells before: {orig_missing_total}; after:"
+      f" {final_missing_total}."
+  )
 
-# Cleaning operations
-clean = df.copy()
-# Remove fully duplicated records, if any.
-clean = clean.drop_duplicates()
-# Remove leading/trailing whitespace from text columns.
-for col in clean.select_dtypes(include="object").columns:
-    clean[col] = clean[col].str.strip()
+  # 5.7 Handling Inconsistent Data (Case Normalization)
+  if "Sex" in df.columns:
+    df["Sex"] = df["Sex"].str.strip().str.lower()
+  if "Embarked" in df.columns:
+    df["Embarked"] = df["Embarked"].str.strip().str.upper()
+  report.append(
+      "Step 6 - Categorical text values standardized (Sex lowercase; Embarked"
+      " uppercase)."
+  )
 
-# Cabin is missing for most records; retaining it would add little reliable information.
-if "Cabin" in clean.columns:
-    clean = clean.drop(columns=["Cabin"])
+  # 5.8 Outlier Detection (IQR Rule - Flagged, not deleted)
+  report.append(
+      "Step 7 - Outliers detected with the IQR rule and flagged, not deleted."
+  )
+  for col in ["Age", "Fare", "SibSp", "Parch"]:
+    if col in df.columns:
+      q1 = df[col].quantile(0.25)
+      q3 = df[col].quantile(0.75)
+      iqr = q3 - q1
+      lower = q1 - 1.5 * iqr
+      upper = q3 + 1.5 * iqr
+      flag_col = f"{col}_OutlierFlag"
+      df[flag_col] = ((df[col] < lower) | (df[col] > upper)).astype(int)
+      report.append(f"  {col}: {int(df[flag_col].sum())} potential outlier(s)")
 
-# Median is robust to extreme values; use it for numeric Age.
-if "Age" in clean.columns:
-    clean["Age"] = clean["Age"].fillna(clean["Age"].median())
+  # 5.9 Data Validation
+  val_dups = int(df.duplicated().sum()) == 0
+  val_miss = int(df.isna().sum().sum()) == 0
+  val_age = bool((df["Age"] >= 0).all()) if "Age" in df.columns else True
+  val_fare = bool((df["Fare"] >= 0).all()) if "Fare" in df.columns else True
+  val_surv = (
+      bool(df["Survived"].isin([0, 1]).all()) if "Survived" in df.columns else True
+  )
 
-# Mode is suitable for the small number of missing categorical Embarked values.
-if "Embarked" in clean.columns and clean["Embarked"].isna().any():
-    clean["Embarked"] = clean["Embarked"].fillna(clean["Embarked"].mode()[0])
+  report.append("\nStep 8 - Data validation:")
+  report.append(f"  No duplicate rows: {'PASS' if val_dups else 'FAIL'}")
+  report.append(f"  No missing cells: {'PASS' if val_miss else 'FAIL'}")
+  report.append(f"  Age non-negative: {'PASS' if val_age else 'FAIL'}")
+  report.append(f"  Fare non-negative: {'PASS' if val_fare else 'FAIL'}")
+  report.append(f"  Survived values are 0/1: {'PASS' if val_surv else 'FAIL'}")
 
-# Save cleaned dataset and validation report.
-clean.to_csv(OUT, index=False)
-print("\\nAFTER CLEANING")
-print("Shape:", clean.shape)
-print(clean.head().to_string(index=False))
-print("\\nMissing values after cleaning:\\n", clean.isna().sum())
-print("Duplicate rows after cleaning:", clean.duplicated().sum())
+  # 5.10 Exporting the Cleaned Dataset
+  out_csv = os.path.join(output_dir, "final_cleaned_titanic.csv")
+  out_txt = os.path.join(output_dir, "cleaning_execution_report.txt")
+  df.to_csv(out_csv, index=False)
 
-# Screenshot 3: cleaned dataset preview
-fig, ax = plt.subplots(figsize=(13, 3.2))
-ax.axis("off")
-ax.set_title(f"After Cleaning — first 8 rows | shape={clean.shape}", weight="bold")
-tbl = ax.table(cellText=clean.head(8).astype(str).values,
-               colLabels=clean.columns, loc="center", cellLoc="left")
-tbl.auto_set_font_size(False); tbl.set_fontsize(6); tbl.scale(1, 1.35)
-plt.tight_layout(); plt.savefig(SHOTS / "03_after_cleaning.png", dpi=180); plt.close()
+  report.append(f"\nCleaned dataset saved to: {os.path.abspath(out_csv)}")
+  report.append(f"Final shape: {df.shape[0]} rows x {df.shape[1]} columns")
+  report.append("\nMissing values after cleaning:")
+  report.append(df.isna().sum().to_string())
 
-# Screenshot 4: validation
-after_missing = int(clean.isna().sum().sum())
-after_duplicates = int(clean.duplicated().sum())
-fig, ax = plt.subplots(figsize=(8, 2.8)); ax.axis("off")
-ax.set_title("Final Data Quality Validation", weight="bold")
-ax.text(0.08, 0.65, f"Total missing cells: {after_missing}\\nDuplicate rows: {after_duplicates}\\nOutput: {OUT.name}",
-        fontsize=13, family="monospace", va="center")
-plt.tight_layout(); plt.savefig(SHOTS / "04_validation.png", dpi=180); plt.close()
+  full_report = "\n".join(report)
+  with open(out_txt, "w", encoding="utf-8") as f:
+    f.write(full_report)
 
-print(f"\\nScreenshots saved in: {SHOTS}")
-print(f"Cleaned CSV saved at: {OUT}")
+  print(full_report)
+  print(
+      "\nSUCCESS: Cleaned CSV and execution report saved in"
+      f" {output_dir} folder."
+  )
+
+
+if __name__ == "__main__":
+  run_data_cleansing("cleaned_titanic.csv")
