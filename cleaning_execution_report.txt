@@ -1,0 +1,18 @@
+>> INGESTED: cleaned_titanic.csv | Shape: 891x19 | Nulls: 0 | Duplicates: 0
+>> [STEP 1] String whitespace trimmed.
+>> [STEP 2] Deduplication complete (0 removed).
+>> [STEP 3] Numeric Int64 & Float64 schemas enforced.
+>> [STEP 4] Domain range validation passed.
+>> [STEP 5] Stratified imputation complete (0 -> 0 nulls).
+>> [STEP 6] Categorical casing standardized.
+>> [STEP 7] Engineered 4 new features: FamilySize, IsAlone, Title, AgeGroup.
+>> [STEP 8] 1.5x IQR Outlier detection complete (441 cells flagged & retained).
+>> [EXPORT] Saved Output\cleaned_titanic_final.csv & Output\cleaning_execution_report.txt
+>> [STEP 1] String whitespace trimmed.
+>> [STEP 2] Deduplication complete (0 removed).
+>> [STEP 3] Numeric Int64 & Float64 schemas enforced.
+>> [STEP 4] Domain range validation passed.
+>> [STEP 5] Stratified imputation complete (0 -> 0 nulls).
+>> [STEP 6] Categorical casing standardized.
+>> [STEP 7] Engineered 4 new features: FamilySize, IsAlone, Title, AgeGroup.
+>> [STEP 8] 1.5x IQR Outlier detection complete (441 cells flagged & retained).
